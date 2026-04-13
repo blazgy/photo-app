@@ -15,6 +15,7 @@ vi.mock("./lib/imageProcessing", async () => {
 });
 
 vi.mock("./lib/downloads", () => ({
+  downloadAssetsIndividually: vi.fn(),
   downloadAssetsZip: vi.fn().mockResolvedValue(undefined),
   downloadBlob: vi.fn(),
 }));
@@ -112,6 +113,38 @@ describe("App", () => {
       quality: 72,
       targetWidths: [1200, 600],
     });
+  });
+
+  it("downloads both generated files separately from a single action", async () => {
+    const downloads = await import("./lib/downloads");
+
+    render(<App />);
+
+    const file = new File(["portrait"], "portrait.jpg", {
+      type: "image/jpeg",
+    });
+
+    fireEvent.change(screen.getByLabelText("Upload photo"), {
+      target: { files: [file] },
+    });
+
+    await flushDebouncedProcessing();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download Both Files" }));
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+
+    expect(downloads.downloadAssetsIndividually).toHaveBeenCalledWith([
+      {
+        width: 600,
+        height: 400,
+        filename: "portrait-600.avif",
+        blob: expect.any(Blob),
+        sizeBytes: 7,
+      },
+    ]);
   });
 });
 

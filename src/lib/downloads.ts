@@ -18,6 +18,14 @@ export function downloadBlob(blob: Blob, filename: string): void {
   }, 0);
 }
 
+export function downloadAssetsIndividually(outputs: OutputAsset[]): void {
+  outputs.forEach((asset, index) => {
+    window.setTimeout(() => {
+      downloadBlob(asset.blob, asset.filename);
+    }, index * 180);
+  });
+}
+
 export async function downloadAssetsZip(
   sourceFilename: string,
   outputs: OutputAsset[],

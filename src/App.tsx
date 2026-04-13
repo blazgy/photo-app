@@ -14,7 +14,11 @@ import {
   processImageFile,
   warmAvifEncoder,
 } from "./lib/imageProcessing";
-import { downloadAssetsZip, downloadBlob } from "./lib/downloads";
+import {
+  downloadAssetsIndividually,
+  downloadAssetsZip,
+  downloadBlob,
+} from "./lib/downloads";
 
 const DEFAULT_QUALITY = 60;
 const PROCESS_DELAY_MS = 350;
@@ -32,6 +36,7 @@ function App() {
   const [encodedPreviewUrl, setEncodedPreviewUrl] = useState<string | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isPackagingZip, setIsPackagingZip] = useState(false);
+  const [isDownloadingBoth, setIsDownloadingBoth] = useState(false);
 
   useEffect(() => {
     void warmAvifEncoder();
@@ -119,6 +124,7 @@ function App() {
   const outputs = result?.outputs ?? [];
   const hasExports = outputs.length > 0;
   const skippedWidths = result?.skippedWidths ?? [];
+  const heroPreviewUrl = encodedPreviewUrl ?? sourcePreviewUrl;
   const previewLabel = outputs.some((asset) => asset.width === 1200)
     ? "1200px AVIF preview"
     : outputs[0]
@@ -186,29 +192,98 @@ function App() {
     }
   };
 
+  const handleSeparateDownload = () => {
+    if (!hasExports) {
+      return;
+    }
+
+    setIsDownloadingBoth(true);
+    downloadAssetsIndividually(outputs);
+
+    window.setTimeout(() => {
+      setIsDownloadingBoth(false);
+    }, Math.max(outputs.length - 1, 0) * 180 + 220);
+  };
+
   return (
     <div className="page-shell">
-      <div className="backdrop-glow backdrop-glow-left" />
-      <div className="backdrop-glow backdrop-glow-right" />
+      <div className="frame-shell">
+        <header className="hero-panel">
+          <div className="top-rail">
+            <span className="rail-logo">+1</span>
+            <div className="rail-nav" aria-hidden="true">
+              <span>Projects</span>
+              <span>Scaler</span>
+              <span>Exports</span>
+            </div>
+            <div className="rail-actions" aria-hidden="true">
+              <span>New Arrivals</span>
+              <div className="menu-mark">
+                <span />
+                <span />
+              </div>
+            </div>
+          </div>
 
-      <header className="hero-panel">
-        <div>
-          <p className="eyebrow">AVIF Photo Scaler</p>
-          <h1>Compress once, ship two crisp AVIF sizes.</h1>
-        </div>
-        <p className="hero-copy">
-          Drop a single JPG, PNG, or WebP image and export browser-generated
-          AVIF files at 1200px and 600px without sending your photo to a server.
-        </p>
-        <div className="badge-row">
-          <span>Browser only</span>
-          <span>1200px + 600px</span>
-          <span>No upscaling</span>
-        </div>
-      </header>
+          <div className="hero-stage">
+            <div className="hero-brand">
+              <p className="eyebrow">Netzwerk International Photo Scaler</p>
+              <h1>scale.</h1>
+              <p className="hero-copy">
+                Upload one photo. The app compresses entirely in-browser and
+                exports AVIF files at 1200px and 600px with proportional height.
+              </p>
+              <div className="hero-meta" aria-hidden="true">
+                <span>AVIF LAB</span>
+                <span>1200 / 600</span>
+              </div>
+              <div className="hero-index" aria-hidden="true">
+                1200
+              </div>
+            </div>
 
-      <main className="workspace-grid">
-        <section className="panel">
+            <div className="hero-art">
+              <div className="hero-notes">
+                <span>X/LABS</span>
+                <span>
+                  In-browser compression and scaled AVIF exports with a preview
+                  that updates as you tune quality.
+                </span>
+              </div>
+
+              <div className="hero-composition">
+                <div className="hero-accent-block" />
+                <div className="hero-image-shell">
+                  {heroPreviewUrl ? (
+                    <img
+                      alt={
+                        selectedFile
+                          ? `Hero preview for ${selectedFile.name}`
+                          : "Hero preview"
+                      }
+                      src={heroPreviewUrl}
+                    />
+                  ) : (
+                    <div className="hero-image-placeholder">
+                      Upload a photo to place it into the live AVIF preview.
+                    </div>
+                  )}
+                </div>
+                <div className="hero-vertical-copy" aria-hidden="true">
+                  <span>NETZWERK</span>
+                  <span>PHOTO</span>
+                  <span>SCALER</span>
+                </div>
+                <div className="hero-arrow" aria-hidden="true">
+                  →
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="workspace-grid">
+          <section className="panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Upload</p>
@@ -271,24 +346,6 @@ function App() {
             </p>
           </div>
 
-          <div className="rules-grid">
-            <article className="rule-card">
-              <p className="eyebrow">Input</p>
-              <h3>Focused v1 support</h3>
-              <p>JPG, PNG, and WebP uploads only.</p>
-            </article>
-            <article className="rule-card">
-              <p className="eyebrow">Exports</p>
-              <h3>Fixed widths</h3>
-              <p>AVIF outputs at 1200px and 600px.</p>
-            </article>
-            <article className="rule-card">
-              <p className="eyebrow">Scaling</p>
-              <h3>No artificial enlargement</h3>
-              <p>Images smaller than a target width are skipped.</p>
-            </article>
-          </div>
-
           <div className="status-stack" aria-live="polite">
             <p className={`status-pill status-${status}`}>{statusMessage}</p>
             {errorMessage ? (
@@ -304,9 +361,9 @@ function App() {
               <strong>{selectedFile.name}</strong>
             </div>
           ) : null}
-        </section>
+          </section>
 
-        <section className="panel panel-preview">
+          <section className="panel panel-preview">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Preview</p>
@@ -351,14 +408,26 @@ function App() {
               <h3>Ready-to-download files</h3>
             </div>
             {hasExports ? (
-              <button
-                className="secondary-button"
-                disabled={status === "processing" || isPackagingZip}
-                type="button"
-                onClick={() => void handleZipDownload()}
-              >
-                {isPackagingZip ? "Packaging ZIP..." : "Download ZIP"}
-              </button>
+              <div className="results-actions">
+                <button
+                  className="secondary-button"
+                  disabled={status === "processing" || isDownloadingBoth}
+                  type="button"
+                  onClick={handleSeparateDownload}
+                >
+                  {isDownloadingBoth
+                    ? "Downloading both..."
+                    : "Download Both Files"}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={status === "processing" || isPackagingZip}
+                  type="button"
+                  onClick={() => void handleZipDownload()}
+                >
+                  {isPackagingZip ? "Packaging ZIP..." : "Download ZIP"}
+                </button>
+              </div>
             ) : null}
           </div>
 
@@ -422,8 +491,9 @@ function App() {
               to download.
             </p>
           ) : null}
-        </section>
-      </main>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }

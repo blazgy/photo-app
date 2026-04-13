@@ -127,7 +127,6 @@ export async function processImageFile(
     throw new Error("Please choose a JPG, PNG, or WebP image.");
   }
 
-  const encoder = await loadAvifModule();
   const decoded = await decodeImageFile(file);
 
   try {
@@ -140,19 +139,15 @@ export async function processImageFile(
     const outputs: OutputAsset[] = [];
 
     for (const target of plan.outputs) {
-      const pixels = renderScaledImage(decoded.image, target.width, target.height);
-      const encoded = await encoder.encode(pixels, {
-        cqLevel: qualityToCqLevel(options.quality),
-      });
-      const data = normalizeEncodedData(encoded);
-      const buffer = toArrayBuffer(data);
+      const canvas = renderScaledCanvas(decoded.image, target.width, target.height);
+      const blob = await encodeCanvasToAvif(canvas, options.quality);
 
       outputs.push({
         width: target.width,
         height: target.height,
         filename: createOutputFilename(file.name, target.width),
-        blob: new Blob([buffer], { type: "image/avif" }),
-        sizeBytes: buffer.byteLength,
+        blob,
+        sizeBytes: blob.size,
       });
     }
 
@@ -202,11 +197,11 @@ async function decodeImageFile(file: File): Promise<DecodedImage> {
   }
 }
 
-function renderScaledImage(
+function renderScaledCanvas(
   source: CanvasImageSource,
   width: number,
   height: number,
-): ImageData {
+): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -220,9 +215,67 @@ function renderScaledImage(
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   context.clearRect(0, 0, width, height);
-  context.drawImage(source, 0, 0, width, height);
+  context.drawImage(
+    source,
+    0,
+    0,
+    getSourceWidth(source),
+    getSourceHeight(source),
+    0,
+    0,
+    width,
+    height,
+  );
 
-  return context.getImageData(0, 0, width, height);
+  return canvas;
+}
+
+async function encodeCanvasToAvif(
+  canvas: HTMLCanvasElement,
+  quality: number,
+): Promise<Blob> {
+  const browserEncodedBlob = await canvasToBlob(canvas, quality);
+
+  if (browserEncodedBlob) {
+    return browserEncodedBlob;
+  }
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Your browser could not initialize a 2D canvas.");
+  }
+
+  const encoder = await loadAvifModule();
+  const encoded = await encoder.encode(
+    context.getImageData(0, 0, canvas.width, canvas.height),
+    {
+      cqLevel: qualityToCqLevel(quality),
+    },
+  );
+  const data = normalizeEncodedData(encoded);
+
+  return new Blob([toArrayBuffer(data)], { type: "image/avif" });
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  quality: number,
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob?.type === "image/avif") {
+          resolve(blob);
+          return;
+        }
+
+        resolve(null);
+      },
+      "image/avif",
+      quality / 100,
+    );
+  });
 }
 
 function normalizeEncodedData(
@@ -245,6 +298,46 @@ function toArrayBuffer(view: Uint8Array): ArrayBuffer {
 function qualityToCqLevel(quality: number): number {
   const clampedQuality = Math.min(100, Math.max(0, quality));
   return Math.round(((100 - clampedQuality) / 100) * 63);
+}
+
+function getSourceWidth(source: CanvasImageSource): number {
+  if ("displayWidth" in source && typeof source.displayWidth === "number") {
+    return source.displayWidth;
+  }
+
+  if ("videoWidth" in source && typeof source.videoWidth === "number") {
+    return source.videoWidth;
+  }
+
+  if ("naturalWidth" in source && typeof source.naturalWidth === "number") {
+    return source.naturalWidth;
+  }
+
+  if ("width" in source && typeof source.width === "number") {
+    return source.width;
+  }
+
+  throw new Error("Unable to determine the source image width.");
+}
+
+function getSourceHeight(source: CanvasImageSource): number {
+  if ("displayHeight" in source && typeof source.displayHeight === "number") {
+    return source.displayHeight;
+  }
+
+  if ("videoHeight" in source && typeof source.videoHeight === "number") {
+    return source.videoHeight;
+  }
+
+  if ("naturalHeight" in source && typeof source.naturalHeight === "number") {
+    return source.naturalHeight;
+  }
+
+  if ("height" in source && typeof source.height === "number") {
+    return source.height;
+  }
+
+  throw new Error("Unable to determine the source image height.");
 }
 
 function loadImageElement(objectUrl: string): Promise<HTMLImageElement> {
