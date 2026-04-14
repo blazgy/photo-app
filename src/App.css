@@ -28,50 +28,20 @@
 }
 
 .top-rail {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
   align-items: center;
-  gap: 24px;
   margin-bottom: 28px;
   color: #161616;
 }
 
-.rail-logo,
-.rail-nav span,
-.rail-actions span {
+.rail-logo {
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.rail-logo {
   font-size: 2rem;
   font-weight: 900;
   letter-spacing: -0.08em;
-}
-
-.rail-nav,
-.rail-actions {
-  display: flex;
-  align-items: center;
-  gap: 34px;
-}
-
-.rail-nav {
-  justify-content: center;
-}
-
-.menu-mark {
-  display: grid;
-  gap: 6px;
-}
-
-.menu-mark span {
-  display: block;
-  width: 24px;
-  height: 2px;
-  background: #161616;
 }
 
 .hero-stage {
@@ -486,6 +456,8 @@
   gap: 12px;
   min-height: 320px;
   padding: 16px;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .preview-card figcaption {
@@ -500,11 +472,13 @@
 .preview-placeholder {
   width: 100%;
   min-height: 260px;
+  max-height: 460px;
   border-radius: 16px;
 }
 
 .preview-card img {
-  height: 100%;
+  display: block;
+  height: auto;
   object-fit: contain;
   background: #f1efea;
 }
@@ -773,24 +747,12 @@
     padding: 18px 18px 8px;
   }
 
-  .top-rail,
   .panel-heading,
   .control-heading,
   .results-header {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .rail-nav {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 14px;
-  }
-
-  .rail-actions {
-    width: 100%;
-    justify-content: space-between;
   }
 
   .hero-panel h1 {

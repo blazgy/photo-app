@@ -334,23 +334,11 @@ function App() {
         <header className="hero-panel">
           <div className="top-rail">
             <span className="rail-logo">+1</span>
-            <div className="rail-nav" aria-hidden="true">
-              <span>Projects</span>
-              <span>Scaler</span>
-              <span>Exports</span>
-            </div>
-            <div className="rail-actions" aria-hidden="true">
-              <span>New Arrivals</span>
-              <div className="menu-mark">
-                <span />
-                <span />
-              </div>
-            </div>
           </div>
 
           <div className="hero-stage">
             <div className="hero-brand">
-              <p className="eyebrow">Netzwerk International Photo Scaler</p>
+              <p className="eyebrow">OTRO Photo Scaler</p>
               <h1>scale.</h1>
               <p className="hero-copy">
                 Upload up to 10 photos. The app queues them one by one and exports
