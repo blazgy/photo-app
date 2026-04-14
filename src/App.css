@@ -90,15 +90,12 @@
 }
 
 .hero-title {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.01em;
+  display: inline-block;
 }
 
 .hero-title-char {
   display: inline-block;
-  min-width: 0.56ch;
-  will-change: transform, opacity, contents;
+  will-change: transform, opacity;
 }
 
 .hero-copy,

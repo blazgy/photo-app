@@ -29,7 +29,7 @@ const DEFAULT_QUALITY = 60;
 const MAX_BATCH_FILES = 10;
 const PROCESS_DELAY_MS = 350;
 const HERO_TITLE = "scale.";
-const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@%&*";
+const SCRAMBLE_CHARS = "SCALE0123456789.";
 
 type QueueItemStatus = "queued" | "processing" | "ready" | "error";
 type FeedbackTone = "info" | "error";
@@ -99,13 +99,13 @@ function App() {
 
     const revealTween = gsap.fromTo(
       chars,
-      { yPercent: 22, opacity: 0.2 },
+      { yPercent: 8, opacity: 0.65 },
       {
         yPercent: 0,
         opacity: 1,
-        duration: 0.68,
-        ease: "power3.out",
-        stagger: 0.1,
+        duration: 0.46,
+        ease: "power1.out",
+        stagger: 0.06,
       },
     );
 
@@ -115,8 +115,8 @@ function App() {
 
       return gsap.to(state, {
         progress: 1,
-        duration: 0.56,
-        delay: 0.1 + index * 0.12,
+        duration: 0.34,
+        delay: 0.04 + index * 0.08,
         ease: "power2.out",
         onUpdate: () => {
           if (finalChar === " ") {
@@ -124,7 +124,7 @@ function App() {
             return;
           }
 
-          if (state.progress >= 1) {
+          if (state.progress >= 0.72) {
             charNode.textContent = finalChar;
             return;
           }
@@ -140,9 +140,14 @@ function App() {
       });
     });
 
+    const normalizeTween = gsap.delayedCall(1.1, () => {
+      gsap.set(chars, { clearProps: "transform,opacity" });
+    });
+
     return () => {
       revealTween.kill();
       scrambleTweens.forEach((tween) => tween.kill());
+      normalizeTween.kill();
       chars.forEach((charNode) => {
         const finalChar = charNode.dataset.finalChar ?? "";
         charNode.textContent = finalChar === " " ? "\u00A0" : finalChar;
