@@ -98,6 +98,10 @@
   will-change: transform, opacity;
 }
 
+.hero-title-dot {
+  display: inline-block;
+}
+
 .hero-copy,
 .panel-note,
 .muted-copy,

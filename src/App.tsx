@@ -28,8 +28,8 @@ import {
 const DEFAULT_QUALITY = 60;
 const MAX_BATCH_FILES = 10;
 const PROCESS_DELAY_MS = 350;
-const HERO_TITLE = "scale.";
-const SCRAMBLE_CHARS = "SCALE0123456789.";
+const HERO_TITLE_LETTERS = "scale";
+const SCRAMBLE_CHARS = "SCALE0123456789";
 
 type QueueItemStatus = "queued" | "processing" | "ready" | "error";
 type FeedbackTone = "info" | "error";
@@ -430,8 +430,12 @@ function App() {
           <div className="hero-stage">
             <div className="hero-brand">
               <p className="eyebrow">OTRO Photo Scaler</p>
-              <h1 aria-label={HERO_TITLE} className="hero-title" ref={heroTitleRef}>
-                {Array.from(HERO_TITLE).map((char, index) => (
+              <h1
+                aria-label={`${HERO_TITLE_LETTERS}.`}
+                className="hero-title"
+                ref={heroTitleRef}
+              >
+                {Array.from(HERO_TITLE_LETTERS).map((char, index) => (
                   <span
                     aria-hidden="true"
                     className="hero-title-char"
@@ -441,6 +445,9 @@ function App() {
                     {char === " " ? "\u00A0" : char}
                   </span>
                 ))}
+                <span aria-hidden="true" className="hero-title-dot">
+                  .
+                </span>
               </h1>
               <p className="hero-copy">
                 Upload up to 10 photos. The app queues them one by one and exports
