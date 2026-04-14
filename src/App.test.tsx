@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
-import { processImageFile, warmAvifEncoder } from "./lib/imageProcessing";
+import {
+  type ProcessingResult,
+  processImageFile,
+  warmAvifEncoder,
+} from "./lib/imageProcessing";
 
 vi.mock("./lib/imageProcessing", async () => {
   const actual = await vi.importActual<typeof import("./lib/imageProcessing")>(
@@ -27,95 +31,134 @@ describe("App", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockedWarmAvifEncoder.mockResolvedValue(undefined);
-    mockedProcessImageFile.mockResolvedValue({
-      outputs: [
-        {
-          width: 600,
-          height: 400,
-          filename: "portrait-600.avif",
-          blob: new Blob(["encoded"], { type: "image/avif" }),
-          sizeBytes: 7,
-        },
-      ],
-      skippedWidths: [1200],
-    });
+    mockedProcessImageFile.mockResolvedValue(createMockResult("portrait", 800));
   });
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
+  afterEach(async () => {
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     vi.useRealTimers();
     vi.clearAllMocks();
   });
 
-  it("shows a validation error for unsupported files", () => {
+  it("shows a validation error for unsupported batch input", () => {
     render(<App />);
 
-    const input = screen.getByLabelText("Upload photo");
-    fireEvent.change(input, {
+    fireEvent.change(screen.getByLabelText("Upload photos"), {
       target: {
         files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
       },
     });
 
     expect(
-      screen.getByText("Please choose a JPG, PNG, or WebP image."),
+      screen.getByText("No compatible images were added. Use JPG, PNG, or WebP files."),
     ).toBeInTheDocument();
     expect(mockedProcessImageFile).not.toHaveBeenCalled();
   });
 
-  it("processes a valid image and reveals the output card", async () => {
+  it("caps the batch queue at 10 photos", async () => {
     render(<App />);
 
-    const file = new File(["portrait"], "portrait.jpg", {
-      type: "image/jpeg",
+    const files = Array.from({ length: 11 }, (_, index) =>
+      new File([`image-${index}`], `image-${index}.jpg`, {
+        type: "image/jpeg",
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Upload photos"), {
+        target: { files },
+      });
     });
 
-    fireEvent.change(screen.getByLabelText("Upload photo"), {
-      target: { files: [file] },
-    });
+    await flushQueueCycle();
 
-    await flushDebouncedProcessing();
-
-    expect(mockedProcessImageFile).toHaveBeenCalledWith(file, {
-      quality: 60,
-      targetWidths: [1200, 600],
-    });
-    expect(screen.getByText("600 x 400")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download ZIP" })).toBeEnabled();
+    expect(screen.getByText("10 / 10 photos")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Skipped export: 1200px because this app does not upscale smaller source images.",
-      ),
+      screen.getByText("10 photos added to the queue. 1 file skipped because the batch limit is 10."),
     ).toBeInTheDocument();
   });
 
-  it("reprocesses when the quality slider changes", async () => {
+  it("processes queued photos one by one", async () => {
+    let resolveFirst: ((value: ProcessingResult) => void) | undefined;
+
+    mockedProcessImageFile
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProcessingResult>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(createMockResult("second", 720));
+
+    render(<App />);
+
+    const firstFile = new File(["first"], "first.jpg", { type: "image/jpeg" });
+    const secondFile = new File(["second"], "second.jpg", { type: "image/jpeg" });
+
+    fireEvent.change(screen.getByLabelText("Upload photos"), {
+      target: { files: [firstFile, secondFile] },
+    });
+
+    await flushQueueCycle();
+
+    expect(mockedProcessImageFile).toHaveBeenCalledTimes(1);
+    expect(mockedProcessImageFile).toHaveBeenNthCalledWith(1, firstFile, {
+      quality: 60,
+      targetWidths: [1200, 600],
+    });
+    expect(
+      screen.getByText("Processing photo 1 of 2. 0 ready, 1 waiting."),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirst?.(createMockResult("first", 900));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushQueueCycle();
+
+    expect(mockedProcessImageFile).toHaveBeenCalledTimes(2);
+    expect(mockedProcessImageFile).toHaveBeenNthCalledWith(2, secondFile, {
+      quality: 60,
+      targetWidths: [1200, 600],
+    });
+  });
+
+  it("reprocesses the batch when the quality slider changes", async () => {
     render(<App />);
 
     const file = new File(["portrait"], "portrait.jpg", {
       type: "image/jpeg",
     });
 
-    fireEvent.change(screen.getByLabelText("Upload photo"), {
+    fireEvent.change(screen.getByLabelText("Upload photos"), {
       target: { files: [file] },
     });
 
-    await flushDebouncedProcessing();
+    await flushQueueCycle();
     expect(mockedProcessImageFile).toHaveBeenCalledTimes(1);
 
     fireEvent.change(screen.getByLabelText("AVIF quality"), {
       target: { value: "72" },
     });
 
-    await flushDebouncedProcessing();
+    await flushQueueCycle();
 
     expect(mockedProcessImageFile).toHaveBeenLastCalledWith(file, {
       quality: 72,
       targetWidths: [1200, 600],
     });
+    expect(
+      screen.getByText("Quality changed. Re-encoding the batch one photo at a time."),
+    ).toBeInTheDocument();
   });
 
-  it("downloads both generated files separately from a single action", async () => {
+  it("downloads both generated files from an item card", async () => {
     const downloads = await import("./lib/downloads");
 
     render(<App />);
@@ -124,11 +167,11 @@ describe("App", () => {
       type: "image/jpeg",
     });
 
-    fireEvent.change(screen.getByLabelText("Upload photo"), {
+    fireEvent.change(screen.getByLabelText("Upload photos"), {
       target: { files: [file] },
     });
 
-    await flushDebouncedProcessing();
+    await flushQueueCycle();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Download Both Files" }));
@@ -136,19 +179,38 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect(downloads.downloadAssetsIndividually).toHaveBeenCalledWith([
-      {
-        width: 600,
-        height: 400,
-        filename: "portrait-600.avif",
-        blob: expect.any(Blob),
-        sizeBytes: 7,
-      },
-    ]);
+    expect(downloads.downloadAssetsIndividually).toHaveBeenCalledWith(
+      createMockResult("portrait", 800).outputs,
+    );
   });
 });
 
-async function flushDebouncedProcessing(): Promise<void> {
+function createMockResult(
+  baseName: string,
+  scaled1200Height: number,
+): ProcessingResult {
+  return {
+    outputs: [
+      {
+        width: 1200,
+        height: scaled1200Height,
+        filename: `${baseName}-1200.avif`,
+        blob: new Blob([`${baseName}-1200`], { type: "image/avif" }),
+        sizeBytes: 12,
+      },
+      {
+        width: 600,
+        height: Math.round(scaled1200Height / 2),
+        filename: `${baseName}-600.avif`,
+        blob: new Blob([`${baseName}-600`], { type: "image/avif" }),
+        sizeBytes: 7,
+      },
+    ],
+    skippedWidths: [],
+  };
+}
+
+async function flushQueueCycle(): Promise<void> {
   await act(async () => {
     vi.advanceTimersByTime(400);
     await Promise.resolve();

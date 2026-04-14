@@ -16,17 +16,23 @@ describe("imageProcessing helpers", () => {
     });
   });
 
-  it("skips widths that would require upscaling", () => {
+  it("still generates 1200px when the source image is narrower", () => {
     expect(getTargetDimensions(800, 600, [1200, 600])).toEqual({
-      outputs: [{ width: 600, height: 450 }],
-      skippedWidths: [1200],
+      outputs: [
+        { width: 1200, height: 900 },
+        { width: 600, height: 450 },
+      ],
+      skippedWidths: [],
     });
   });
 
-  it("returns no outputs when the image is smaller than 600px", () => {
+  it("upscales smaller images while keeping the aspect ratio", () => {
     expect(getTargetDimensions(480, 320, [1200, 600])).toEqual({
-      outputs: [],
-      skippedWidths: [1200, 600],
+      outputs: [
+        { width: 1200, height: 800 },
+        { width: 600, height: 400 },
+      ],
+      skippedWidths: [],
     });
   });
 

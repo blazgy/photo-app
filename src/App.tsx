@@ -1,14 +1,17 @@
 import {
   type ChangeEvent,
   type DragEvent,
+  type MutableRefObject,
   startTransition,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import "./App.css";
 import {
   DEFAULT_TARGET_WIDTHS,
+  type OutputAsset,
   type ProcessingResult,
   isSupportedImageFile,
   processImageFile,
@@ -21,69 +24,114 @@ import {
 } from "./lib/downloads";
 
 const DEFAULT_QUALITY = 60;
+const MAX_BATCH_FILES = 10;
 const PROCESS_DELAY_MS = 350;
 
-type ProcessingStatus = "idle" | "processing" | "ready" | "error";
+type QueueItemStatus = "queued" | "processing" | "ready" | "error";
+type FeedbackTone = "info" | "error";
+
+interface QueueItem {
+  id: string;
+  file: File;
+  status: QueueItemStatus;
+  result: ProcessingResult | null;
+  errorMessage: string | null;
+}
 
 function App() {
   const uploadInputId = useId();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const queueIdRef = useRef(0);
+  const hasInitializedQuality = useRef(false);
+  const itemsRef = useRef<QueueItem[]>([]);
+
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [quality, setQuality] = useState(DEFAULT_QUALITY);
-  const [status, setStatus] = useState<ProcessingStatus>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [result, setResult] = useState<ProcessingResult | null>(null);
-  const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
-  const [encodedPreviewUrl, setEncodedPreviewUrl] = useState<string | null>(null);
+  const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+  const [uploadFeedbackTone, setUploadFeedbackTone] =
+    useState<FeedbackTone>("info");
   const [isDragActive, setIsDragActive] = useState(false);
-  const [isPackagingZip, setIsPackagingZip] = useState(false);
-  const [isDownloadingBoth, setIsDownloadingBoth] = useState(false);
+  const [zipDownloadsInProgress, setZipDownloadsInProgress] = useState<
+    Record<string, boolean>
+  >({});
+  const [separateDownloadsInProgress, setSeparateDownloadsInProgress] =
+    useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     void warmAvifEncoder();
   }, []);
 
   useEffect(() => {
-    if (!selectedFile) {
-      setSourcePreviewUrl(null);
+    if (!hasInitializedQuality.current) {
+      hasInitializedQuality.current = true;
       return;
     }
 
-    const nextUrl = URL.createObjectURL(selectedFile);
-    setSourcePreviewUrl(nextUrl);
-
-    return () => {
-      URL.revokeObjectURL(nextUrl);
-    };
-  }, [selectedFile]);
-
-  useEffect(() => {
-    if (!result?.outputs.length) {
-      setEncodedPreviewUrl(null);
+    if (itemsRef.current.length === 0) {
       return;
     }
 
-    const preferredPreview =
-      result.outputs.find((asset) => asset.width === 1200) ?? result.outputs[0];
-    const nextUrl = URL.createObjectURL(preferredPreview.blob);
-    setEncodedPreviewUrl(nextUrl);
-
-    return () => {
-      URL.revokeObjectURL(nextUrl);
-    };
-  }, [result]);
+    setActiveItemId(null);
+    setItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        status: "queued",
+        result: null,
+        errorMessage: null,
+      })),
+    );
+    setUploadFeedback(
+      "Quality changed. Re-encoding the batch one photo at a time.",
+    );
+    setUploadFeedbackTone("info");
+  }, [quality]);
 
   useEffect(() => {
-    if (!selectedFile) {
-      setResult(null);
+    if (activeItemId) {
+      return;
+    }
+
+    const nextQueuedItem = items.find((item) => item.status === "queued");
+
+    if (!nextQueuedItem) {
+      return;
+    }
+
+    setActiveItemId(nextQueuedItem.id);
+  }, [activeItemId, items]);
+
+  useEffect(() => {
+    if (!activeItemId) {
+      return;
+    }
+
+    const itemToProcess = itemsRef.current.find((item) => item.id === activeItemId);
+
+    if (!itemToProcess) {
+      setActiveItemId(null);
       return;
     }
 
     let isCancelled = false;
 
-    setStatus("processing");
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === activeItemId
+          ? {
+              ...item,
+              status: "processing",
+              errorMessage: null,
+            }
+          : item,
+      ),
+    );
 
     const timeoutId = window.setTimeout(() => {
-      void processImageFile(selectedFile, {
+      void processImageFile(itemToProcess.file, {
         quality,
         targetWidths: [...DEFAULT_TARGET_WIDTHS],
       })
@@ -93,9 +141,21 @@ function App() {
           }
 
           startTransition(() => {
-            setResult(nextResult);
-            setErrorMessage(null);
-            setStatus("ready");
+            setItems((currentItems) =>
+              currentItems.map((item) =>
+                item.id === activeItemId
+                  ? {
+                      ...item,
+                      status: "ready",
+                      result: nextResult,
+                      errorMessage: null,
+                    }
+                  : item,
+              ),
+            );
+            setActiveItemId((currentActiveId) =>
+              currentActiveId === activeItemId ? null : currentActiveId,
+            );
           });
         })
         .catch((error: unknown) => {
@@ -104,12 +164,23 @@ function App() {
           }
 
           startTransition(() => {
-            setResult(null);
-            setStatus("error");
-            setErrorMessage(
-              error instanceof Error
-                ? error.message
-                : "Unable to process this image right now.",
+            setItems((currentItems) =>
+              currentItems.map((item) =>
+                item.id === activeItemId
+                  ? {
+                      ...item,
+                      status: "error",
+                      result: null,
+                      errorMessage:
+                        error instanceof Error
+                          ? error.message
+                          : "Unable to process this image right now.",
+                    }
+                  : item,
+              ),
+            );
+            setActiveItemId((currentActiveId) =>
+              currentActiveId === activeItemId ? null : currentActiveId,
             );
           });
         });
@@ -119,41 +190,78 @@ function App() {
       isCancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [quality, selectedFile]);
+  }, [activeItemId, quality]);
 
-  const outputs = result?.outputs ?? [];
-  const hasExports = outputs.length > 0;
-  const skippedWidths = result?.skippedWidths ?? [];
-  const heroPreviewUrl = encodedPreviewUrl ?? sourcePreviewUrl;
-  const previewLabel = outputs.some((asset) => asset.width === 1200)
-    ? "1200px AVIF preview"
-    : outputs[0]
-      ? `${outputs[0].width}px AVIF preview`
-      : "AVIF preview";
+  const totalCount = items.length;
+  const readyItems = items.filter((item) => item.status === "ready");
+  const queuedCount = items.filter((item) => item.status === "queued").length;
+  const errorCount = items.filter((item) => item.status === "error").length;
+  const heroItem =
+    items.find((item) => item.status === "processing") ??
+    items.find((item) => item.status === "ready") ??
+    items[0] ??
+    null;
+  const heroOutput =
+    heroItem?.result?.outputs.find((asset) => asset.width === 1200) ??
+    heroItem?.result?.outputs[0] ??
+    null;
+  const statusMessage = getStatusMessage(items);
 
-  const statusMessage = getStatusMessage(status, selectedFile, outputs.length);
-
-  const handleFileSelection = (file: File | null) => {
-    if (!file) {
+  const handleFilesSelection = (incomingFiles: File[]) => {
+    if (incomingFiles.length === 0) {
       return;
     }
 
-    if (!isSupportedImageFile(file)) {
-      setSelectedFile(null);
-      setResult(null);
-      setStatus("error");
-      setErrorMessage("Please choose a JPG, PNG, or WebP image.");
+    const supportedFiles = incomingFiles.filter((file) => isSupportedImageFile(file));
+    const unsupportedCount = incomingFiles.length - supportedFiles.length;
+    const remainingSlots = Math.max(MAX_BATCH_FILES - itemsRef.current.length, 0);
+    const acceptedFiles = supportedFiles.slice(0, remainingSlots);
+    const overflowCount = Math.max(supportedFiles.length - acceptedFiles.length, 0);
+
+    if (acceptedFiles.length > 0) {
+      setItems((currentItems) => [
+        ...currentItems,
+        ...acceptedFiles.map((file) => createQueueItem(file, queueIdRef)),
+      ]);
+    }
+
+    if (acceptedFiles.length === 0) {
+      if (remainingSlots === 0) {
+        setUploadFeedback(
+          `The queue already has ${MAX_BATCH_FILES} photos. Clear it before adding more.`,
+        );
+      } else {
+        setUploadFeedback("No compatible images were added. Use JPG, PNG, or WebP files.");
+      }
+
+      setUploadFeedbackTone("error");
       return;
     }
 
-    setSelectedFile(file);
-    setResult(null);
-    setStatus("idle");
-    setErrorMessage(null);
+    const feedbackParts = [
+      `${acceptedFiles.length} ${pluralize("photo", acceptedFiles.length)} added to the queue.`,
+    ];
+
+    if (unsupportedCount > 0) {
+      feedbackParts.push(
+        `${unsupportedCount} unsupported ${pluralize("file", unsupportedCount)} ignored.`,
+      );
+    }
+
+    if (overflowCount > 0) {
+      feedbackParts.push(
+        `${overflowCount} ${pluralize("file", overflowCount)} skipped because the batch limit is ${MAX_BATCH_FILES}.`,
+      );
+    }
+
+    setUploadFeedback(feedbackParts.join(" "));
+    setUploadFeedbackTone(
+      unsupportedCount > 0 || overflowCount > 0 ? "error" : "info",
+    );
   };
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    handleFileSelection(event.target.files?.[0] ?? null);
+    handleFilesSelection(Array.from(event.target.files ?? []));
     event.currentTarget.value = "";
   };
 
@@ -170,38 +278,52 @@ function App() {
   const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setIsDragActive(false);
-    handleFileSelection(event.dataTransfer.files?.[0] ?? null);
+    handleFilesSelection(Array.from(event.dataTransfer.files ?? []));
   };
 
-  const handleZipDownload = async () => {
-    if (!selectedFile || !hasExports) {
-      return;
-    }
+  const handleClearQueue = () => {
+    setActiveItemId(null);
+    setItems([]);
+    setUploadFeedback("The batch queue was cleared.");
+    setUploadFeedbackTone("info");
+    setZipDownloadsInProgress({});
+    setSeparateDownloadsInProgress({});
+  };
 
+  const handleItemZipDownload = async (itemId: string, fileName: string, outputs: OutputAsset[]) => {
     try {
-      setIsPackagingZip(true);
-      await downloadAssetsZip(selectedFile.name, outputs);
+      setZipDownloadsInProgress((currentState) => ({
+        ...currentState,
+        [itemId]: true,
+      }));
+      await downloadAssetsZip(fileName, outputs);
     } catch (error) {
-      setErrorMessage(
+      setUploadFeedback(
         error instanceof Error
           ? error.message
           : "The ZIP archive could not be created.",
       );
+      setUploadFeedbackTone("error");
     } finally {
-      setIsPackagingZip(false);
+      setZipDownloadsInProgress((currentState) => ({
+        ...currentState,
+        [itemId]: false,
+      }));
     }
   };
 
-  const handleSeparateDownload = () => {
-    if (!hasExports) {
-      return;
-    }
-
-    setIsDownloadingBoth(true);
+  const handleItemSeparateDownload = (itemId: string, outputs: OutputAsset[]) => {
+    setSeparateDownloadsInProgress((currentState) => ({
+      ...currentState,
+      [itemId]: true,
+    }));
     downloadAssetsIndividually(outputs);
 
     window.setTimeout(() => {
-      setIsDownloadingBoth(false);
+      setSeparateDownloadsInProgress((currentState) => ({
+        ...currentState,
+        [itemId]: false,
+      }));
     }, Math.max(outputs.length - 1, 0) * 180 + 220);
   };
 
@@ -230,15 +352,15 @@ function App() {
               <p className="eyebrow">Netzwerk International Photo Scaler</p>
               <h1>scale.</h1>
               <p className="hero-copy">
-                Upload one photo. The app compresses entirely in-browser and
-                exports AVIF files at 1200px and 600px with proportional height.
+                Upload up to 10 photos. The app queues them one by one and exports
+                AVIF files at 1200px and 600px with proportional height.
               </p>
               <div className="hero-meta" aria-hidden="true">
                 <span>AVIF LAB</span>
-                <span>1200 / 600</span>
+                <span>{`${totalCount} / ${MAX_BATCH_FILES}`}</span>
               </div>
               <div className="hero-index" aria-hidden="true">
-                1200
+                {totalCount > 0 ? totalCount.toString().padStart(2, "0") : "10"}
               </div>
             </div>
 
@@ -246,28 +368,24 @@ function App() {
               <div className="hero-notes">
                 <span>X/LABS</span>
                 <span>
-                  In-browser compression and scaled AVIF exports with a preview
-                  that updates as you tune quality.
+                  A batch queue that processes each image in order and keeps every
+                  1200px and 600px AVIF export ready for download.
                 </span>
               </div>
 
               <div className="hero-composition">
                 <div className="hero-accent-block" />
                 <div className="hero-image-shell">
-                  {heroPreviewUrl ? (
-                    <img
-                      alt={
-                        selectedFile
-                          ? `Hero preview for ${selectedFile.name}`
-                          : "Hero preview"
-                      }
-                      src={heroPreviewUrl}
-                    />
-                  ) : (
-                    <div className="hero-image-placeholder">
-                      Upload a photo to place it into the live AVIF preview.
-                    </div>
-                  )}
+                  <PreviewImage
+                    alt={
+                      heroItem
+                        ? `Hero preview for ${heroItem.file.name}`
+                        : "Hero preview"
+                    }
+                    placeholderClassName="hero-image-placeholder"
+                    placeholderText="Upload a batch to place the active queue item into the live preview."
+                    source={heroOutput?.blob ?? heroItem?.file ?? null}
+                  />
                 </div>
                 <div className="hero-vertical-copy" aria-hidden="true">
                   <span>NETZWERK</span>
@@ -284,213 +402,175 @@ function App() {
 
         <main className="workspace-grid">
           <section className="panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Upload</p>
-              <h2>Bring in the source photo</h2>
-            </div>
-            <p className="panel-note">
-              The app keeps the original aspect ratio and only exports sizes the
-              source image can support.
-            </p>
-          </div>
-
-          <label
-            className={`upload-zone ${isDragActive ? "is-dragging" : ""}`}
-            htmlFor={uploadInputId}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          >
-            <input
-              id={uploadInputId}
-              aria-label="Upload photo"
-              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-              className="visually-hidden"
-              type="file"
-              onChange={handleInputChange}
-            />
-            <span className="upload-pill">Upload photo</span>
-            <strong>Drop a JPG, PNG, or WebP image here.</strong>
-            <span>
-              Or click to browse. Processing stays in your browser and the app
-              exports AVIF versions at fixed widths.
-            </span>
-          </label>
-
-          <div className="control-card">
-            <div className="control-heading">
+            <div className="panel-heading">
               <div>
-                <p className="eyebrow">Compression</p>
-                <h3>AVIF quality</h3>
+                <p className="eyebrow">Upload</p>
+                <h2>Queue up to 10 photos</h2>
               </div>
-              <span className="quality-value">{quality}</span>
-            </div>
-            <label className="slider-label" htmlFor="quality-slider">
-              AVIF quality
-            </label>
-            <input
-              id="quality-slider"
-              aria-label="AVIF quality"
-              className="quality-slider"
-              max={90}
-              min={20}
-              step={1}
-              type="range"
-              value={quality}
-              onChange={(event) => setQuality(Number(event.target.value))}
-            />
-            <p className="muted-copy">
-              Higher values keep more detail and increase file size. The preview
-              regenerates automatically after each change.
-            </p>
-          </div>
-
-          <div className="status-stack" aria-live="polite">
-            <p className={`status-pill status-${status}`}>{statusMessage}</p>
-            {errorMessage ? (
-              <p className="error-banner" role="alert">
-                {errorMessage}
+              <p className="panel-note">
+                The queue runs one image at a time and every photo gets fixed
+                1200px and 600px AVIF exports.
               </p>
-            ) : null}
-          </div>
-
-          {selectedFile ? (
-            <div className="file-chip">
-              <span className="file-chip-label">Selected</span>
-              <strong>{selectedFile.name}</strong>
             </div>
-          ) : null}
+
+            <label
+              className={`upload-zone ${isDragActive ? "is-dragging" : ""}`}
+              htmlFor={uploadInputId}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
+              <input
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                aria-label="Upload photos"
+                className="visually-hidden"
+                id={uploadInputId}
+                multiple
+                type="file"
+                onChange={handleInputChange}
+              />
+              <span className="upload-pill">Upload batch</span>
+              <strong>Drop up to 10 JPG, PNG, or WebP images here.</strong>
+              <span>
+                Or click to browse. New photos are added to the queue and processed
+                one by one in your browser.
+              </span>
+            </label>
+
+            <div className="control-card">
+              <div className="control-heading">
+                <div>
+                  <p className="eyebrow">Compression</p>
+                  <h3>AVIF quality</h3>
+                </div>
+                <span className="quality-value">{quality}</span>
+              </div>
+              <label className="slider-label" htmlFor="quality-slider">
+                AVIF quality
+              </label>
+              <input
+                aria-label="AVIF quality"
+                className="quality-slider"
+                id="quality-slider"
+                max={90}
+                min={20}
+                step={1}
+                type="range"
+                value={quality}
+                onChange={(event) => setQuality(Number(event.target.value))}
+              />
+              <p className="muted-copy">
+                Changing the quality re-queues the current batch and regenerates the
+                exports one by one.
+              </p>
+            </div>
+
+            <div className="status-stack" aria-live="polite">
+              <p className="status-pill">{statusMessage}</p>
+              {uploadFeedback ? (
+                <p
+                  className={
+                    uploadFeedbackTone === "error" ? "error-banner" : "note-banner"
+                  }
+                  role={uploadFeedbackTone === "error" ? "alert" : undefined}
+                >
+                  {uploadFeedback}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="file-chip">
+              <span className="file-chip-label">Queue</span>
+              <strong>
+                {totalCount} / {MAX_BATCH_FILES} photos
+              </strong>
+              {totalCount > 0 ? (
+                <button
+                  className="queue-clear-button"
+                  type="button"
+                  onClick={handleClearQueue}
+                >
+                  Clear Queue
+                </button>
+              ) : null}
+            </div>
           </section>
 
           <section className="panel panel-preview">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Preview</p>
-              <h2>Compare source and AVIF output</h2>
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Preview</p>
+                <h2>Track the active queue item</h2>
+              </div>
+              <p className="panel-note">
+                The hero and preview panes follow the current item while every
+                result card keeps its own download actions.
+              </p>
             </div>
-            <p className="panel-note">
-              The right pane shows the 1200px AVIF when available, or the 600px
-              version when that is the highest supported output.
-            </p>
-          </div>
 
-          <div className="preview-grid">
-            <figure className="preview-card">
-              <figcaption>Original upload</figcaption>
-              {sourcePreviewUrl ? (
-                <img
-                  alt={selectedFile ? `Original preview for ${selectedFile.name}` : "Original preview"}
-                  src={sourcePreviewUrl}
+            <div className="preview-grid">
+              <figure className="preview-card">
+                <figcaption>Current source image</figcaption>
+                <PreviewImage
+                  alt={
+                    heroItem
+                      ? `Original preview for ${heroItem.file.name}`
+                      : "Original preview"
+                  }
+                  placeholderClassName="preview-placeholder"
+                  placeholderText="Upload a batch to see the current source image here."
+                  source={heroItem?.file ?? null}
                 />
-              ) : (
-                <div className="preview-placeholder">
-                  Upload a photo to see the original here.
-                </div>
-              )}
-            </figure>
+              </figure>
 
-            <figure className="preview-card">
-              <figcaption>{previewLabel}</figcaption>
-              {encodedPreviewUrl ? (
-                <img alt="AVIF output preview" src={encodedPreviewUrl} />
-              ) : (
-                <div className="preview-placeholder">
-                  Processed AVIF output will appear here after encoding.
-                </div>
-              )}
-            </figure>
-          </div>
-
-          <div className="results-header">
-            <div>
-              <p className="eyebrow">Exports</p>
-              <h3>Ready-to-download files</h3>
+              <figure className="preview-card">
+                <figcaption>{getPreviewLabel(heroItem)}</figcaption>
+                <PreviewImage
+                  alt="AVIF output preview"
+                  placeholderClassName="preview-placeholder"
+                  placeholderText="Processed AVIF output will appear here for the active queue item."
+                  source={heroOutput?.blob ?? null}
+                />
+              </figure>
             </div>
-            {hasExports ? (
-              <div className="results-actions">
-                <button
-                  className="secondary-button"
-                  disabled={status === "processing" || isDownloadingBoth}
-                  type="button"
-                  onClick={handleSeparateDownload}
-                >
-                  {isDownloadingBoth
-                    ? "Downloading both..."
-                    : "Download Both Files"}
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={status === "processing" || isPackagingZip}
-                  type="button"
-                  onClick={() => void handleZipDownload()}
-                >
-                  {isPackagingZip ? "Packaging ZIP..." : "Download ZIP"}
-                </button>
+
+            <div className="results-header">
+              <div>
+                <p className="eyebrow">Exports</p>
+                <h3>Processed batch</h3>
               </div>
-            ) : null}
-          </div>
+              <p className="results-copy">
+                {readyItems.length > 0
+                  ? `${readyItems.length} ${pluralize("photo", readyItems.length)} ready with per-image downloads.`
+                  : "Each processed photo gets 1200px, 600px, both-files, and ZIP downloads."}
+              </p>
+            </div>
 
-          <div className="output-grid">
-            {hasExports ? (
-              outputs.map((asset) => (
-                <article className="output-card" key={asset.width}>
-                  <div>
-                    <p className="eyebrow">AVIF export</p>
-                    <h4>{asset.width}px</h4>
-                  </div>
-                  <dl className="output-meta">
-                    <div>
-                      <dt>Dimensions</dt>
-                      <dd>
-                        {asset.width} x {asset.height}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>File size</dt>
-                      <dd>{formatBytes(asset.sizeBytes)}</dd>
-                    </div>
-                    <div>
-                      <dt>Filename</dt>
-                      <dd>{asset.filename}</dd>
-                    </div>
-                  </dl>
-                  <button
-                    className="primary-button"
-                    disabled={status === "processing"}
-                    type="button"
-                    onClick={() => downloadBlob(asset.blob, asset.filename)}
-                  >
-                    Download {asset.width}px
-                  </button>
-                </article>
-              ))
-            ) : (
-              <div className="empty-state">
-                <p className="eyebrow">No exports yet</p>
-                <h4>Upload a compatible image to generate AVIF files.</h4>
-                <p>
-                  Files smaller than 600px wide will not create an export because
-                  this app never upscales the source.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {skippedWidths.length > 0 ? (
-            <p className="note-banner">
-              Skipped {skippedWidths.length > 1 ? "exports" : "export"}:{" "}
-              {formatWidthList(skippedWidths)} because this app does not upscale
-              smaller source images.
-            </p>
-          ) : null}
-
-          {status === "ready" && !hasExports ? (
-            <p className="note-banner">
-              This upload is narrower than 600px, so there are no AVIF outputs
-              to download.
-            </p>
-          ) : null}
+            <div className="output-grid">
+              {items.length > 0 ? (
+                items.map((item, index) => (
+                  <BatchItemCard
+                    key={item.id}
+                    index={index}
+                    isDownloadingBoth={Boolean(separateDownloadsInProgress[item.id])}
+                    isPackagingZip={Boolean(zipDownloadsInProgress[item.id])}
+                    item={item}
+                    onDownloadAsset={downloadBlob}
+                    onDownloadBoth={handleItemSeparateDownload}
+                    onDownloadZip={handleItemZipDownload}
+                  />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <p className="eyebrow">No queue yet</p>
+                  <h4>Upload a batch to start the one-by-one AVIF pipeline.</h4>
+                  <p>
+                    Each image will generate a 1200px export, a 600px export, and
+                    per-photo downloads once processing completes.
+                  </p>
+                </div>
+              )}
+            </div>
           </section>
         </main>
       </div>
@@ -498,34 +578,228 @@ function App() {
   );
 }
 
-function getStatusMessage(
-  status: ProcessingStatus,
-  selectedFile: File | null,
-  outputCount: number,
-): string {
-  if (!selectedFile) {
-    return "Waiting for a photo. Fixed AVIF exports will be generated at 1200px and 600px.";
-  }
-
-  if (status === "processing") {
-    return "Encoding fresh AVIF previews and downloads...";
-  }
-
-  if (status === "ready") {
-    return outputCount > 0
-      ? `Ready: ${outputCount} AVIF ${outputCount === 1 ? "export" : "exports"} generated.`
-      : "Ready: the image was processed, but no export widths were large enough to generate.";
-  }
-
-  if (status === "error") {
-    return "Processing is blocked until a supported image is selected.";
-  }
-
-  return "Preparing the next AVIF export run...";
+interface BatchItemCardProps {
+  index: number;
+  isDownloadingBoth: boolean;
+  isPackagingZip: boolean;
+  item: QueueItem;
+  onDownloadAsset: (blob: Blob, filename: string) => void;
+  onDownloadBoth: (itemId: string, outputs: OutputAsset[]) => void;
+  onDownloadZip: (
+    itemId: string,
+    fileName: string,
+    outputs: OutputAsset[],
+  ) => Promise<void>;
 }
 
-function formatWidthList(widths: number[]): string {
-  return widths.map((width) => `${width}px`).join(" and ");
+function BatchItemCard({
+  index,
+  isDownloadingBoth,
+  isPackagingZip,
+  item,
+  onDownloadAsset,
+  onDownloadBoth,
+  onDownloadZip,
+}: BatchItemCardProps) {
+  const outputs = item.result?.outputs ?? [];
+
+  return (
+    <article className={`output-card batch-card batch-card-${item.status}`}>
+      <div className="batch-card-header">
+        <div>
+          <p className="eyebrow">{`Photo ${index + 1}`}</p>
+          <h4>{item.file.name}</h4>
+        </div>
+        <span className={`batch-status batch-status-${item.status}`}>
+          {getItemStatusLabel(item.status)}
+        </span>
+      </div>
+
+      <div className="batch-preview-shell">
+        <PreviewImage
+          alt={`Batch preview for ${item.file.name}`}
+          placeholderClassName="preview-placeholder batch-preview-placeholder"
+          placeholderText="This queue item is waiting for a preview."
+          source={
+            outputs.find((asset) => asset.width === 1200)?.blob ??
+            outputs[0]?.blob ??
+            item.file
+          }
+        />
+      </div>
+
+      {item.errorMessage ? (
+        <p className="error-banner" role="alert">
+          {item.errorMessage}
+        </p>
+      ) : null}
+
+      {outputs.length > 0 ? (
+        <>
+          <div className="batch-export-list">
+            {outputs.map((asset) => (
+              <div className="batch-export-row" key={asset.width}>
+                <div className="batch-export-meta">
+                  <strong>{asset.width}px</strong>
+                  <span>
+                    {asset.width} x {asset.height}
+                  </span>
+                  <span>{formatBytes(asset.sizeBytes)}</span>
+                </div>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => onDownloadAsset(asset.blob, asset.filename)}
+                >
+                  Download {asset.width}px
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="batch-actions">
+            <button
+              className="secondary-button"
+              disabled={isDownloadingBoth}
+              type="button"
+              onClick={() => onDownloadBoth(item.id, outputs)}
+            >
+              {isDownloadingBoth ? "Downloading both..." : "Download Both Files"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isPackagingZip}
+              type="button"
+              onClick={() => void onDownloadZip(item.id, item.file.name, outputs)}
+            >
+              {isPackagingZip ? "Packaging ZIP..." : "Download ZIP"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="muted-copy batch-note">{getItemDetailCopy(item.status)}</p>
+      )}
+    </article>
+  );
+}
+
+interface PreviewImageProps {
+  alt: string;
+  placeholderClassName: string;
+  placeholderText: string;
+  source: Blob | null;
+}
+
+function PreviewImage({
+  alt,
+  placeholderClassName,
+  placeholderText,
+  source,
+}: PreviewImageProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!source) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(source);
+    setPreviewUrl(nextUrl);
+
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [source]);
+
+  if (!previewUrl) {
+    return <div className={placeholderClassName}>{placeholderText}</div>;
+  }
+
+  return <img alt={alt} src={previewUrl} />;
+}
+
+function createQueueItem(file: File, queueIdRef: MutableRefObject<number>): QueueItem {
+  queueIdRef.current += 1;
+
+  return {
+    id: `queue-item-${queueIdRef.current}`,
+    file,
+    status: "queued",
+    result: null,
+    errorMessage: null,
+  };
+}
+
+function getStatusMessage(items: QueueItem[]): string {
+  if (items.length === 0) {
+    return `Waiting for up to ${MAX_BATCH_FILES} photos. They will be processed one by one.`;
+  }
+
+  const processingIndex = items.findIndex((item) => item.status === "processing");
+  const readyCount = items.filter((item) => item.status === "ready").length;
+  const queuedCount = items.filter((item) => item.status === "queued").length;
+  const errorCount = items.filter((item) => item.status === "error").length;
+
+  if (processingIndex >= 0) {
+    return `Processing photo ${processingIndex + 1} of ${items.length}. ${readyCount} ready, ${queuedCount} waiting.`;
+  }
+
+  if (queuedCount > 0) {
+    return `${queuedCount} ${pluralize("photo", queuedCount)} ${queuedCount === 1 ? "is" : "are"} queued and waiting to be processed.`;
+  }
+
+  if (errorCount > 0) {
+    return `Finished with ${readyCount} ready and ${errorCount} failed ${pluralize("photo", errorCount)}.`;
+  }
+
+  return `Ready: ${readyCount} ${pluralize("photo", readyCount)} processed at 1200px and 600px.`;
+}
+
+function getPreviewLabel(item: QueueItem | null): string {
+  if (!item) {
+    return "Batch preview";
+  }
+
+  const preferredOutput =
+    item.result?.outputs.find((asset) => asset.width === 1200) ??
+    item.result?.outputs[0];
+
+  if (preferredOutput) {
+    return `${preferredOutput.width}px AVIF preview`;
+  }
+
+  return item.status === "processing" ? "Processing source preview" : "Queued source preview";
+}
+
+function getItemStatusLabel(status: QueueItemStatus): string {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "processing":
+      return "Processing";
+    case "ready":
+      return "Ready";
+    case "error":
+      return "Error";
+  }
+}
+
+function getItemDetailCopy(status: QueueItemStatus): string {
+  switch (status) {
+    case "queued":
+      return "This photo is waiting in the queue and will be processed after the current items finish.";
+    case "processing":
+      return "This photo is being encoded right now. The preview and downloads will appear when processing completes.";
+    case "ready":
+      return "The exports are ready.";
+    case "error":
+      return "This photo could not be processed.";
+  }
+}
+
+function pluralize(word: string, count: number): string {
+  return count === 1 ? word : `${word}s`;
 }
 
 function formatBytes(bytes: number): string {

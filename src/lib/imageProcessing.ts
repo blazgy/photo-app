@@ -93,14 +93,8 @@ export function getTargetDimensions(
   );
 
   const outputs: PlannedOutput[] = [];
-  const skippedWidths: number[] = [];
 
   for (const targetWidth of uniqueWidths) {
-    if (targetWidth > sourceWidth) {
-      skippedWidths.push(targetWidth);
-      continue;
-    }
-
     const scaledHeight = Math.max(
       1,
       Math.round((sourceHeight * targetWidth) / sourceWidth),
@@ -112,7 +106,7 @@ export function getTargetDimensions(
     });
   }
 
-  return { outputs, skippedWidths };
+  return { outputs, skippedWidths: [] };
 }
 
 export async function warmAvifEncoder(): Promise<void> {
