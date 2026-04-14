@@ -355,7 +355,7 @@ function App() {
 
             <div className="hero-art">
               <div className="hero-notes">
-                <span>develop by OTRO LABS</span>
+                <span>Developed by OTRO LABS</span>
               </div>
 
               <div className="hero-composition">

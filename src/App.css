@@ -431,17 +431,27 @@
 }
 
 .queue-clear-button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #171717;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #ffffff;
+  color: #171717;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .queue-clear-button:hover {
+  transform: translateY(-1px);
+  background: #171717;
   color: #fff8ef;
 }
 
