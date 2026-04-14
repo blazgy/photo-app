@@ -29,7 +29,7 @@ const DEFAULT_QUALITY = 60;
 const MAX_BATCH_FILES = 10;
 const PROCESS_DELAY_MS = 350;
 const HERO_TITLE_LETTERS = "scale";
-const SCRAMBLE_CHARS = "SCALE0123456789";
+const SCRAMBLE_CHARS = "SCALE";
 
 type QueueItemStatus = "queued" | "processing" | "ready" | "error";
 type FeedbackTone = "info" | "error";

@@ -90,16 +90,22 @@
 }
 
 .hero-title {
-  display: inline-block;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  white-space: nowrap;
+  min-width: 5.5ch;
 }
 
 .hero-title-char {
   display: inline-block;
+  flex: 0 0 auto;
   will-change: transform, opacity;
 }
 
 .hero-title-dot {
   display: inline-block;
+  flex: 0 0 auto;
 }
 
 .hero-copy,
