@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { gsap } from "gsap";
 import "./App.css";
 import {
   DEFAULT_TARGET_WIDTHS,
@@ -27,6 +28,8 @@ import {
 const DEFAULT_QUALITY = 60;
 const MAX_BATCH_FILES = 10;
 const PROCESS_DELAY_MS = 350;
+const HERO_TITLE = "scale.";
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@%&*";
 
 type QueueItemStatus = "queued" | "processing" | "ready" | "error";
 type FeedbackTone = "info" | "error";
@@ -42,6 +45,7 @@ interface QueueItem {
 function App() {
   const uploadInputId = useId();
   const queueIdRef = useRef(0);
+  const heroTitleRef = useRef<HTMLHeadingElement | null>(null);
   const hasInitializedQuality = useRef(false);
   const itemsRef = useRef<QueueItem[]>([]);
 
@@ -62,6 +66,88 @@ function App() {
 
   useEffect(() => {
     void warmAvifEncoder();
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+
+    const heading = heroTitleRef.current;
+
+    if (!heading) {
+      return;
+    }
+
+    const chars = Array.from(
+      heading.querySelectorAll<HTMLSpanElement>("[data-final-char]"),
+    );
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      "matchMedia" in window &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      chars.forEach((charNode) => {
+        const finalChar = charNode.dataset.finalChar ?? "";
+        charNode.textContent = finalChar === " " ? "\u00A0" : finalChar;
+      });
+
+      return;
+    }
+
+    const revealTween = gsap.fromTo(
+      chars,
+      { yPercent: 22, opacity: 0.2 },
+      {
+        yPercent: 0,
+        opacity: 1,
+        duration: 0.68,
+        ease: "power3.out",
+        stagger: 0.1,
+      },
+    );
+
+    const scrambleTweens = chars.map((charNode, index) => {
+      const finalChar = charNode.dataset.finalChar ?? "";
+      const state = { progress: 0 };
+
+      return gsap.to(state, {
+        progress: 1,
+        duration: 0.56,
+        delay: 0.1 + index * 0.12,
+        ease: "power2.out",
+        onUpdate: () => {
+          if (finalChar === " ") {
+            charNode.textContent = "\u00A0";
+            return;
+          }
+
+          if (state.progress >= 1) {
+            charNode.textContent = finalChar;
+            return;
+          }
+
+          const scrambleIndex = Math.floor(
+            Math.random() * SCRAMBLE_CHARS.length,
+          );
+          charNode.textContent = SCRAMBLE_CHARS[scrambleIndex];
+        },
+        onComplete: () => {
+          charNode.textContent = finalChar === " " ? "\u00A0" : finalChar;
+        },
+      });
+    });
+
+    return () => {
+      revealTween.kill();
+      scrambleTweens.forEach((tween) => tween.kill());
+      chars.forEach((charNode) => {
+        const finalChar = charNode.dataset.finalChar ?? "";
+        charNode.textContent = finalChar === " " ? "\u00A0" : finalChar;
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -339,7 +425,18 @@ function App() {
           <div className="hero-stage">
             <div className="hero-brand">
               <p className="eyebrow">OTRO Photo Scaler</p>
-              <h1>scale.</h1>
+              <h1 aria-label={HERO_TITLE} className="hero-title" ref={heroTitleRef}>
+                {Array.from(HERO_TITLE).map((char, index) => (
+                  <span
+                    aria-hidden="true"
+                    className="hero-title-char"
+                    data-final-char={char}
+                    key={`${char}-${index}`}
+                  >
+                    {char === " " ? "\u00A0" : char}
+                  </span>
+                ))}
+              </h1>
               <p className="hero-copy">
                 Upload up to 10 photos. The app queues them one by one and exports
                 AVIF files at 1200px and 600px with proportional height.

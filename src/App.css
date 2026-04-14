@@ -89,6 +89,18 @@
   text-transform: lowercase;
 }
 
+.hero-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.01em;
+}
+
+.hero-title-char {
+  display: inline-block;
+  min-width: 0.56ch;
+  will-change: transform, opacity, contents;
+}
+
 .hero-copy,
 .panel-note,
 .muted-copy,
