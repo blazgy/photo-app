@@ -372,10 +372,28 @@ function App() {
                     source={heroOutput?.blob ?? heroItem?.file ?? null}
                   />
                 </div>
-                <div className="hero-vertical-copy" aria-hidden="true">
-                  <span>NETZWERK</span>
-                  <span>PHOTO</span>
-                  <span>SCALER</span>
+                <div className="hero-dot-motif" aria-hidden="true">
+                  <svg
+                    className="hero-dot-svg"
+                    focusable="false"
+                    viewBox="0 0 72 132"
+                  >
+                    <circle cx="12" cy="12" r="4" />
+                    <circle cx="36" cy="12" r="4" />
+                    <circle cx="60" cy="12" r="4" />
+                    <circle cx="12" cy="36" r="4" />
+                    <circle cx="36" cy="36" r="4" />
+                    <circle cx="60" cy="36" r="4" />
+                    <circle cx="12" cy="60" r="4" />
+                    <circle cx="36" cy="60" r="4" />
+                    <circle cx="60" cy="60" r="4" />
+                    <circle cx="12" cy="84" r="4" />
+                    <circle cx="36" cy="84" r="4" />
+                    <circle cx="60" cy="84" r="4" />
+                    <circle cx="12" cy="108" r="4" />
+                    <circle cx="36" cy="108" r="4" />
+                    <circle cx="60" cy="108" r="4" />
+                  </svg>
                 </div>
               </div>
             </div>

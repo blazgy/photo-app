@@ -215,20 +215,54 @@
   font-size: 0.95rem;
 }
 
-.hero-vertical-copy {
+.hero-dot-motif {
   position: absolute;
   top: 48px;
   right: 0;
   display: grid;
-  gap: 8px;
+  place-items: center;
+  width: 88px;
+  height: 160px;
   padding-left: 18px;
   border-left: 3px solid #171717;
-  color: #111111;
-  font-size: 0.98rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  writing-mode: vertical-rl;
+}
+
+.hero-dot-svg {
+  width: 58px;
+  height: 120px;
+}
+
+.hero-dot-svg circle {
+  fill: #171717;
+  opacity: 0.35;
+  transform-origin: center;
+  animation: hero-dot-pulse 1.8s ease-in-out infinite;
+}
+
+.hero-dot-svg circle:nth-child(3n + 2) {
+  animation-delay: 0.2s;
+}
+
+.hero-dot-svg circle:nth-child(3n + 3) {
+  animation-delay: 0.4s;
+}
+
+.hero-dot-svg circle:nth-child(2n) {
+  animation-duration: 2.1s;
+}
+
+@keyframes hero-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    fill: #f35d36;
+    transform: scale(1.22);
+  }
 }
 
 .workspace-grid {
@@ -788,9 +822,15 @@
     height: 380px;
   }
 
-  .hero-vertical-copy {
+  .hero-dot-motif {
     top: 22px;
-    font-size: 0.8rem;
+    width: 74px;
+    height: 138px;
+  }
+
+  .hero-dot-svg {
+    width: 48px;
+    height: 100px;
   }
 
   .workspace-grid {
