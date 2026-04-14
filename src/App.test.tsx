@@ -158,7 +158,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("downloads both generated files from an item card", async () => {
+  it("downloads the processed batch as one zip archive", async () => {
     const downloads = await import("./lib/downloads");
 
     render(<App />);
@@ -172,15 +172,19 @@ describe("App", () => {
     });
 
     await flushQueueCycle();
+    expect(screen.queryByRole("button", { name: "Download ZIP" })).not.toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Download Both Files" }));
-      vi.advanceTimersByTime(500);
+      fireEvent.click(screen.getByRole("button", { name: "Download All ZIP" }));
       await Promise.resolve();
     });
 
-    expect(downloads.downloadAssetsIndividually).toHaveBeenCalledWith(
-      createMockResult("portrait", 800).outputs,
+    expect(downloads.downloadAssetsZip).toHaveBeenCalledWith(
+      "netzwerk-photo-batch",
+      expect.arrayContaining([
+        expect.objectContaining({ width: 1200 }),
+        expect.objectContaining({ width: 600 }),
+      ]),
     );
   });
 });

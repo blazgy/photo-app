@@ -164,6 +164,11 @@
   text-transform: uppercase;
 }
 
+.upload-pill {
+  background: #f35d36;
+  color: #111111;
+}
+
 .hero-index {
   align-self: end;
   color: #111111;
@@ -183,15 +188,13 @@
 }
 
 .hero-notes {
-  display: grid;
-  grid-template-columns: auto minmax(0, 320px);
-  align-items: start;
-  gap: 18px;
+  display: flex;
+  align-items: center;
   padding-left: 24px;
   color: #121212;
-  font-size: 0.64rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -256,20 +259,6 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
-}
-
-.hero-arrow {
-  position: absolute;
-  left: 24px;
-  bottom: 38px;
-  width: 64px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  background: #111111;
-  color: #f35d36;
-  font-size: 2.1rem;
-  line-height: 1;
 }
 
 .workspace-grid {
@@ -375,6 +364,10 @@
   padding: 20px;
 }
 
+.upload-zone + .control-card {
+  margin-top: 18px;
+}
+
 .quality-value {
   min-width: 64px;
 }
@@ -429,15 +422,49 @@
   padding: 10px 12px;
   border: 2px solid #171717;
   border-radius: 18px;
-  background: #ffffff;
+  background: #f35d36;
   color: #111111;
+}
+
+.file-chip .file-chip-label {
+  border-color: #171717;
+  background: #1a1a1a;
+  color: #fff8ef;
+}
+
+.batch-download-all-button {
+  border: 2px solid #171717;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #171717;
+  color: #fff8ef;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.batch-download-all-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #fff8ef;
+  color: #171717;
+}
+
+.batch-download-all-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .queue-clear-button {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #171717;
+  color: #111111;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -445,7 +472,7 @@
 }
 
 .queue-clear-button:hover {
-  color: #f35d36;
+  color: #fff8ef;
 }
 
 .preview-grid {
@@ -505,7 +532,7 @@
 .output-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .output-card {
@@ -771,7 +798,6 @@
   }
 
   .hero-notes {
-    grid-template-columns: 1fr;
     padding-left: 0;
   }
 

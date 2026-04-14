@@ -13,6 +13,7 @@ import {
   DEFAULT_TARGET_WIDTHS,
   type OutputAsset,
   type ProcessingResult,
+  getBaseFilename,
   isSupportedImageFile,
   processImageFile,
   warmAvifEncoder,
@@ -51,9 +52,7 @@ function App() {
   const [uploadFeedbackTone, setUploadFeedbackTone] =
     useState<FeedbackTone>("info");
   const [isDragActive, setIsDragActive] = useState(false);
-  const [zipDownloadsInProgress, setZipDownloadsInProgress] = useState<
-    Record<string, boolean>
-  >({});
+  const [isBatchZipDownloading, setIsBatchZipDownloading] = useState(false);
   const [separateDownloadsInProgress, setSeparateDownloadsInProgress] =
     useState<Record<string, boolean>>({});
 
@@ -206,6 +205,10 @@ function App() {
     heroItem?.result?.outputs[0] ??
     null;
   const statusMessage = getStatusMessage(items);
+  const batchZipOutputs = collectBatchOutputs(items);
+  const hasPendingWork = queuedCount > 0 || Boolean(activeItemId);
+  const isBatchZipDisabled =
+    batchZipOutputs.length === 0 || hasPendingWork || isBatchZipDownloading;
 
   const handleFilesSelection = (incomingFiles: File[]) => {
     if (incomingFiles.length === 0) {
@@ -286,17 +289,18 @@ function App() {
     setItems([]);
     setUploadFeedback("The batch queue was cleared.");
     setUploadFeedbackTone("info");
-    setZipDownloadsInProgress({});
+    setIsBatchZipDownloading(false);
     setSeparateDownloadsInProgress({});
   };
 
-  const handleItemZipDownload = async (itemId: string, fileName: string, outputs: OutputAsset[]) => {
+  const handleBatchZipDownload = async () => {
+    if (isBatchZipDisabled) {
+      return;
+    }
+
     try {
-      setZipDownloadsInProgress((currentState) => ({
-        ...currentState,
-        [itemId]: true,
-      }));
-      await downloadAssetsZip(fileName, outputs);
+      setIsBatchZipDownloading(true);
+      await downloadAssetsZip("netzwerk-photo-batch", batchZipOutputs);
     } catch (error) {
       setUploadFeedback(
         error instanceof Error
@@ -305,10 +309,7 @@ function App() {
       );
       setUploadFeedbackTone("error");
     } finally {
-      setZipDownloadsInProgress((currentState) => ({
-        ...currentState,
-        [itemId]: false,
-      }));
+      setIsBatchZipDownloading(false);
     }
   };
 
@@ -366,11 +367,7 @@ function App() {
 
             <div className="hero-art">
               <div className="hero-notes">
-                <span>X/LABS</span>
-                <span>
-                  A batch queue that processes each image in order and keeps every
-                  1200px and 600px AVIF export ready for download.
-                </span>
+                <span>develop by OTRO LABS</span>
               </div>
 
               <div className="hero-composition">
@@ -391,9 +388,6 @@ function App() {
                   <span>NETZWERK</span>
                   <span>PHOTO</span>
                   <span>SCALER</span>
-                </div>
-                <div className="hero-arrow" aria-hidden="true">
-                  →
                 </div>
               </div>
             </div>
@@ -486,6 +480,16 @@ function App() {
               </strong>
               {totalCount > 0 ? (
                 <button
+                  className="batch-download-all-button"
+                  disabled={isBatchZipDisabled}
+                  type="button"
+                  onClick={() => void handleBatchZipDownload()}
+                >
+                  {isBatchZipDownloading ? "Packaging batch ZIP..." : "Download All ZIP"}
+                </button>
+              ) : null}
+              {totalCount > 0 ? (
+                <button
                   className="queue-clear-button"
                   type="button"
                   onClick={handleClearQueue}
@@ -504,7 +508,7 @@ function App() {
               </div>
               <p className="panel-note">
                 The hero and preview panes follow the current item while every
-                result card keeps its own download actions.
+                result card keeps individual AVIF download actions.
               </p>
             </div>
 
@@ -541,8 +545,8 @@ function App() {
               </div>
               <p className="results-copy">
                 {readyItems.length > 0
-                  ? `${readyItems.length} ${pluralize("photo", readyItems.length)} ready with per-image downloads.`
-                  : "Each processed photo gets 1200px, 600px, both-files, and ZIP downloads."}
+                  ? `${readyItems.length} ${pluralize("photo", readyItems.length)} ready. Use Download All ZIP once batch processing completes.`
+                  : "Each processed photo gets 1200px and 600px downloads, plus one Download All ZIP for the full batch."}
               </p>
             </div>
 
@@ -553,11 +557,9 @@ function App() {
                     key={item.id}
                     index={index}
                     isDownloadingBoth={Boolean(separateDownloadsInProgress[item.id])}
-                    isPackagingZip={Boolean(zipDownloadsInProgress[item.id])}
                     item={item}
                     onDownloadAsset={downloadBlob}
                     onDownloadBoth={handleItemSeparateDownload}
-                    onDownloadZip={handleItemZipDownload}
                   />
                 ))
               ) : (
@@ -566,7 +568,7 @@ function App() {
                   <h4>Upload a batch to start the one-by-one AVIF pipeline.</h4>
                   <p>
                     Each image will generate a 1200px export, a 600px export, and
-                    per-photo downloads once processing completes.
+                    per-photo downloads plus one batch ZIP when processing completes.
                   </p>
                 </div>
               )}
@@ -581,25 +583,17 @@ function App() {
 interface BatchItemCardProps {
   index: number;
   isDownloadingBoth: boolean;
-  isPackagingZip: boolean;
   item: QueueItem;
   onDownloadAsset: (blob: Blob, filename: string) => void;
   onDownloadBoth: (itemId: string, outputs: OutputAsset[]) => void;
-  onDownloadZip: (
-    itemId: string,
-    fileName: string,
-    outputs: OutputAsset[],
-  ) => Promise<void>;
 }
 
 function BatchItemCard({
   index,
   isDownloadingBoth,
-  isPackagingZip,
   item,
   onDownloadAsset,
   onDownloadBoth,
-  onDownloadZip,
 }: BatchItemCardProps) {
   const outputs = item.result?.outputs ?? [];
 
@@ -666,14 +660,6 @@ function BatchItemCard({
             >
               {isDownloadingBoth ? "Downloading both..." : "Download Both Files"}
             </button>
-            <button
-              className="secondary-button"
-              disabled={isPackagingZip}
-              type="button"
-              onClick={() => void onDownloadZip(item.id, item.file.name, outputs)}
-            >
-              {isPackagingZip ? "Packaging ZIP..." : "Download ZIP"}
-            </button>
           </div>
         </>
       ) : (
@@ -717,6 +703,22 @@ function PreviewImage({
   }
 
   return <img alt={alt} src={previewUrl} />;
+}
+
+function collectBatchOutputs(items: QueueItem[]): OutputAsset[] {
+  return items.flatMap((item, index) => {
+    if (item.status !== "ready" || !item.result) {
+      return [];
+    }
+
+    const sourcePrefix = getBaseFilename(item.file.name);
+    const indexPrefix = String(index + 1).padStart(2, "0");
+
+    return item.result.outputs.map((asset) => ({
+      ...asset,
+      filename: `${indexPrefix}-${sourcePrefix}-${asset.width}.avif`,
+    }));
+  });
 }
 
 function createQueueItem(file: File, queueIdRef: MutableRefObject<number>): QueueItem {
